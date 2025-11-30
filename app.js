@@ -7,26 +7,31 @@ const { initGame } = require("./game");
 const app = express();
 const server = http.createServer(app);
 
-app.get("/", (req, res) => {
-  res.send("Server is running");
-});
+// Simple health check endpoint for Railway
+app.get("/", (req, res) => res.send("Server is running"));
 
-// Prevent idle shutdown on Railway
-// setInterval(() => {
-//   fetch(`http://localhost:${process.env.PORT}`).catch(() => {});
-// }, 25000);
-
+// Socket.io setup
 const io = socket(server, {
   cors: {
-    origin: "https://the-vote.vercel.app", // no trailing slash
+    origin: "https://the-vote.vercel.app", // prod URL, no trailing slash
     methods: ["GET", "POST"],
   },
 });
 
+// Global state
 const state = {};
 let users = [];
 const clientRooms = {};
 
+// Catch-all error handlers to prevent crashes
+process.on("unhandledRejection", (reason, p) =>
+  console.error("Unhandled Rejection at:", p, "reason:", reason)
+);
+process.on("uncaughtException", (err) =>
+  console.error("Uncaught Exception:", err)
+);
+
+// Socket.io connection
 io.on("connection", (client) => {
   console.log("Client connected:", client.id);
 
@@ -141,12 +146,12 @@ io.on("connection", (client) => {
   }
 
   function emitQuestion(roomname) {
-    console.log("Emitting question for room:", roomname);
     const game = state[roomname];
+    if (!game || game.finished) return;
+
     console.log(
       `Emitting question for room ${roomname} to ${game?.players.length} players`
     );
-    if (!game || game.finished) return;
 
     if (game.round >= game.maxQuestions) {
       game.finished = true;
@@ -168,7 +173,6 @@ io.on("connection", (client) => {
   }
 
   function handleAnswers({ roomname, playerid, question, answer }) {
-    console.log("Received answer from", playerid, "in room", roomname);
     const game = state[roomname];
     if (!game) return;
 
@@ -208,8 +212,8 @@ io.on("connection", (client) => {
   }
 });
 
-const PORT = process.env.PORT || 9000;
-
+// **Railway port**
+const PORT = process.env.PORT;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
