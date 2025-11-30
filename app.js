@@ -11,11 +11,11 @@ app.get("/", (req, res) => {
   res.send("Server is running");
 });
 
-setInterval(() => {
-  fetch(`http://localhost:${PORT}`).catch(() => {
-    console.log("Ping failed");
-  });
-}, 25000);
+// Prevent idle shutdown
+setInterval(
+  () => fetch(`http://localhost:${process.env.PORT}`).catch(() => {}),
+  25000
+);
 
 const io = socket(server, {
   cors: {
