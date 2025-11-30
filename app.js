@@ -83,7 +83,11 @@ io.on("connection", (client) => {
 
   function emitQuestion(roomname) {
     console.log("Emitting question for room:", roomname);
+
     const game = state[roomname];
+    console.log(
+      `Emitting question for room ${roomname} to ${game?.players.length} players`
+    );
     if (!game || game.finished) return;
 
     if (game.round >= game.maxQuestions) {
@@ -164,4 +168,12 @@ io.on("connection", (client) => {
   });
 });
 
-server.listen(9000, () => console.log("Server running on port 9000"));
+const PORT = process.env.PORT || 9000;
+
+app.get("/", (req, res) => {
+  res.send("Server is running");
+});
+
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
