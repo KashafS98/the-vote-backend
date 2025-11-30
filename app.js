@@ -8,7 +8,10 @@ const app = express();
 const server = http.createServer(app);
 
 const io = socket(server, {
-  cors: { origin: "http://localhost:3000", methods: ["GET", "POST"] },
+  cors: {
+    origin: "https://the-vote.vercel.app/",
+    methods: ["GET", "POST"],
+  },
 });
 
 const state = {};
@@ -60,6 +63,7 @@ io.on("connection", (client) => {
   }
 
   function handleStartGame(roomname) {
+    console.log("Starting game in room:", roomname);
     const game = state[roomname];
     if (!game) return;
 
@@ -78,6 +82,7 @@ io.on("connection", (client) => {
   }
 
   function emitQuestion(roomname) {
+    console.log("Emitting question for room:", roomname);
     const game = state[roomname];
     if (!game || game.finished) return;
 
@@ -100,6 +105,7 @@ io.on("connection", (client) => {
   }
 
   function handleAnswers({ roomname, playerid, question, answer }) {
+    console.log("Received answer from", playerid, "in room", roomname);
     const game = state[roomname];
     if (!game) return;
 
@@ -141,6 +147,7 @@ io.on("connection", (client) => {
   }
 
   client.on("disconnect", () => {
+    console.log("Client disconnected:", client.id);
     const roomname = clientRooms[client.id];
     if (!roomname) return;
 
