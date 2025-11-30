@@ -11,6 +11,12 @@ app.get("/", (req, res) => {
   res.send("Server is running");
 });
 
+setInterval(() => {
+  fetch(`http://localhost:${PORT}`).catch(() => {
+    console.log("Ping failed");
+  });
+}, 25000);
+
 const io = socket(server, {
   cors: {
     origin: "https://the-vote.vercel.app/",
