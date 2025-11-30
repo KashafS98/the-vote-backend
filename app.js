@@ -7,6 +7,10 @@ const { initGame } = require("./game");
 const app = express();
 const server = http.createServer(app);
 
+app.get("/", (req, res) => {
+  res.send("Server is running");
+});
+
 const io = socket(server, {
   cors: {
     origin: "https://the-vote.vercel.app/",
@@ -169,10 +173,6 @@ io.on("connection", (client) => {
 });
 
 const PORT = process.env.PORT || 9000;
-
-app.get("/", (req, res) => {
-  res.send("Server is running");
-});
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
