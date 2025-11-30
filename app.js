@@ -214,6 +214,6 @@ io.on("connection", (client) => {
 
 // **Railway port**
 const PORT = process.env.PORT;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+app.listen(Number(PORT) || 3000, "0.0.0.0", () => {
+  console.log("Server is running on port", PORT || 3000);
 });
