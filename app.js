@@ -11,15 +11,14 @@ app.get("/", (req, res) => {
   res.send("Server is running");
 });
 
-// Prevent idle shutdown
-setInterval(
-  () => fetch(`http://localhost:${process.env.PORT}`).catch(() => {}),
-  25000
-);
+// Prevent idle shutdown on Railway
+setInterval(() => {
+  fetch(`http://localhost:${process.env.PORT}`).catch(() => {});
+}, 25000);
 
 const io = socket(server, {
   cors: {
-    origin: "https://the-vote.vercel.app/",
+    origin: "https://the-vote.vercel.app", // no trailing slash
     methods: ["GET", "POST"],
   },
 });
@@ -29,18 +28,69 @@ let users = [];
 const clientRooms = {};
 
 io.on("connection", (client) => {
-  client.on("create-game", handleNewGame);
-  client.on("join-game", handleJoinGame);
-  client.on("start-game", (roomname) => {
-    const creatorId = state[roomname]?.players?.[0]?.id;
-    if (creatorId && client.id === creatorId) handleStartGame(roomname);
-    else
-      client.emit("error", {
-        message: "Only room creator can start the game.",
-      });
-  });
-  client.on("answer", handleAnswers);
+  console.log("Client connected:", client.id);
 
+  client.on("create-game", (data) => {
+    try {
+      handleNewGame(data);
+    } catch (err) {
+      console.error("Error in create-game:", err);
+      client.emit("error", { message: "Failed to create game" });
+    }
+  });
+
+  client.on("join-game", async (data) => {
+    try {
+      await handleJoinGame(data);
+    } catch (err) {
+      console.error("Error in join-game:", err);
+      client.emit("error", { message: "Failed to join game" });
+    }
+  });
+
+  client.on("start-game", (roomname) => {
+    try {
+      const creatorId = state[roomname]?.players?.[0]?.id;
+      if (creatorId && client.id === creatorId) handleStartGame(roomname);
+      else
+        client.emit("error", {
+          message: "Only room creator can start the game.",
+        });
+    } catch (err) {
+      console.error("Error in start-game:", err);
+    }
+  });
+
+  client.on("answer", (data) => {
+    try {
+      handleAnswers(data);
+    } catch (err) {
+      console.error("Error in answer:", err);
+    }
+  });
+
+  client.on("disconnect", () => {
+    try {
+      console.log("Client disconnected:", client.id);
+      const roomname = clientRooms[client.id];
+      if (!roomname) return;
+
+      users = users.filter((u) => u.id !== client.id);
+      const game = state[roomname];
+      if (!game) return;
+
+      game.users = users.filter((u) => u.roomname === roomname);
+      game.players = game.players.filter((p) => p.id !== client.id);
+      delete game.scores[client.id];
+
+      io.sockets.in(roomname).emit("new-player", game.users);
+      delete clientRooms[client.id];
+    } catch (err) {
+      console.error("Error on disconnect:", err);
+    }
+  });
+
+  /*** FUNCTIONS ***/
   function handleNewGame(data) {
     const { name, avatar, gameType } = data;
     const roomName = makeid(5);
@@ -49,6 +99,7 @@ io.on("connection", (client) => {
     state[roomName] = initGame({ roomName, gameType });
     handleNewUser(name, avatar, roomName, client.id);
     client.emit("gameCode", roomName);
+    console.log("Creating game:", { roomName, gameType });
   }
 
   async function handleJoinGame(data) {
@@ -61,6 +112,7 @@ io.on("connection", (client) => {
     client.join(roomname);
     handleNewUser(name, avatar, roomname, client.id);
     client.emit("init", room.size);
+    console.log("Player joined room:", roomname);
   }
 
   function handleNewUser(name, avatar, roomname, id) {
@@ -77,7 +129,6 @@ io.on("connection", (client) => {
     const game = state[roomname];
     if (!game) return;
 
-    // Reset game
     game.round = 0;
     game.finished = false;
     game.scores = {};
@@ -86,14 +137,11 @@ io.on("connection", (client) => {
     game.votes = {};
 
     io.sockets.in(roomname).emit("start", game);
-
-    // Start first question after 5s
     emitQuestion(roomname);
   }
 
   function emitQuestion(roomname) {
     console.log("Emitting question for room:", roomname);
-
     const game = state[roomname];
     console.log(
       `Emitting question for room ${roomname} to ${game?.players.length} players`
@@ -102,10 +150,11 @@ io.on("connection", (client) => {
 
     if (game.round >= game.maxQuestions) {
       game.finished = true;
-      return io.sockets.in(roomname).emit("game-end", {
+      io.sockets.in(roomname).emit("game-end", {
         scores: game.scores,
         players: game.players,
       });
+      return;
     }
 
     const question = game.questions[game.round];
@@ -139,7 +188,6 @@ io.on("connection", (client) => {
       const maxVotes = Math.max(...Object.values(freq));
       const winners = Object.keys(freq).filter((id) => freq[id] === maxVotes);
 
-      // Update scores
       winners.forEach((id) => {
         game.scores[id] = (game.scores[id] || 0) + 1;
         const player = game.players.find((p) => p.id === id);
@@ -154,28 +202,10 @@ io.on("connection", (client) => {
         result: game,
       });
 
-      // Move to next round after 3s
       game.round += 1;
       setTimeout(() => emitQuestion(roomname), 1000);
     }
   }
-
-  client.on("disconnect", () => {
-    console.log("Client disconnected:", client.id);
-    const roomname = clientRooms[client.id];
-    if (!roomname) return;
-
-    users = users.filter((u) => u.id !== client.id);
-    const game = state[roomname];
-    if (!game) return;
-
-    game.users = users.filter((u) => u.roomname === roomname);
-    game.players = game.players.filter((p) => p.id !== client.id);
-    delete game.scores[client.id];
-
-    io.sockets.in(roomname).emit("new-player", game.users);
-    delete clientRooms[client.id];
-  });
 });
 
 const PORT = process.env.PORT || 9000;
