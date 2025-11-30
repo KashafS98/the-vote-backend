@@ -12,9 +12,9 @@ app.get("/", (req, res) => {
 });
 
 // Prevent idle shutdown on Railway
-setInterval(() => {
-  fetch(`http://localhost:${process.env.PORT}`).catch(() => {});
-}, 25000);
+// setInterval(() => {
+//   fetch(`http://localhost:${process.env.PORT}`).catch(() => {});
+// }, 25000);
 
 const io = socket(server, {
   cors: {
