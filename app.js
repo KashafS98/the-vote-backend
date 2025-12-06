@@ -7,95 +7,30 @@ const { initGame } = require("./game");
 const app = express();
 const server = http.createServer(app);
 
-// Simple health check endpoint for Railway
-app.get("/", (req, res) => res.send("Server is running"));
-
-// Socket.io setup
 const io = socket(server, {
   cors: {
-    origin: "https://the-vote.vercel.app", // prod URL, no trailing slash
+    origin: "https://the-vote.vercel.app/" || "http://localhost:3000",
     methods: ["GET", "POST"],
   },
 });
 
-// Global state
 const state = {};
 let users = [];
 const clientRooms = {};
 
-// Catch-all error handlers to prevent crashes
-process.on("unhandledRejection", (reason, p) =>
-  console.error("Unhandled Rejection at:", p, "reason:", reason)
-);
-process.on("uncaughtException", (err) =>
-  console.error("Uncaught Exception:", err)
-);
-
-// Socket.io connection
 io.on("connection", (client) => {
-  console.log("Client connected:", client.id);
-
-  client.on("create-game", (data) => {
-    try {
-      handleNewGame(data);
-    } catch (err) {
-      console.error("Error in create-game:", err);
-      client.emit("error", { message: "Failed to create game" });
-    }
-  });
-
-  client.on("join-game", async (data) => {
-    try {
-      await handleJoinGame(data);
-    } catch (err) {
-      console.error("Error in join-game:", err);
-      client.emit("error", { message: "Failed to join game" });
-    }
-  });
-
+  client.on("create-game", handleNewGame);
+  client.on("join-game", handleJoinGame);
   client.on("start-game", (roomname) => {
-    try {
-      const creatorId = state[roomname]?.players?.[0]?.id;
-      if (creatorId && client.id === creatorId) handleStartGame(roomname);
-      else
-        client.emit("error", {
-          message: "Only room creator can start the game.",
-        });
-    } catch (err) {
-      console.error("Error in start-game:", err);
-    }
+    const creatorId = state[roomname]?.players?.[0]?.id;
+    if (creatorId && client.id === creatorId) handleStartGame(roomname);
+    else
+      client.emit("error", {
+        message: "Only room creator can start the game.",
+      });
   });
+  client.on("answer", handleAnswers);
 
-  client.on("answer", (data) => {
-    try {
-      handleAnswers(data);
-    } catch (err) {
-      console.error("Error in answer:", err);
-    }
-  });
-
-  client.on("disconnect", () => {
-    try {
-      console.log("Client disconnected:", client.id);
-      const roomname = clientRooms[client.id];
-      if (!roomname) return;
-
-      users = users.filter((u) => u.id !== client.id);
-      const game = state[roomname];
-      if (!game) return;
-
-      game.users = users.filter((u) => u.roomname === roomname);
-      game.players = game.players.filter((p) => p.id !== client.id);
-      delete game.scores[client.id];
-
-      io.sockets.in(roomname).emit("new-player", game.users);
-      delete clientRooms[client.id];
-    } catch (err) {
-      console.error("Error on disconnect:", err);
-    }
-  });
-
-  /*** FUNCTIONS ***/
   function handleNewGame(data) {
     const { name, avatar, gameType } = data;
     const roomName = makeid(5);
@@ -104,7 +39,6 @@ io.on("connection", (client) => {
     state[roomName] = initGame({ roomName, gameType });
     handleNewUser(name, avatar, roomName, client.id);
     client.emit("gameCode", roomName);
-    console.log("Creating game:", { roomName, gameType });
   }
 
   async function handleJoinGame(data) {
@@ -117,7 +51,6 @@ io.on("connection", (client) => {
     client.join(roomname);
     handleNewUser(name, avatar, roomname, client.id);
     client.emit("init", room.size);
-    console.log("Player joined room:", roomname);
   }
 
   function handleNewUser(name, avatar, roomname, id) {
@@ -130,10 +63,12 @@ io.on("connection", (client) => {
   }
 
   function handleStartGame(roomname) {
-    console.log("Starting game in room:", roomname);
     const game = state[roomname];
     if (!game) return;
 
+    console.log("Starting game in room:", roomname);
+
+    // Reset game
     game.round = 0;
     game.finished = false;
     game.scores = {};
@@ -142,24 +77,25 @@ io.on("connection", (client) => {
     game.votes = {};
 
     io.sockets.in(roomname).emit("start", game);
-    emitQuestion(roomname);
+
+    // Start first question after 5s
+    setTimeout(() => {
+      emitQuestion(roomname);
+    }, 2000);
   }
 
   function emitQuestion(roomname) {
     const game = state[roomname];
     if (!game || game.finished) return;
 
-    console.log(
-      `Emitting question for room ${roomname} to ${game?.players.length} players`
-    );
+    console.log("Emitting question for room:", roomname);
 
     if (game.round >= game.maxQuestions) {
       game.finished = true;
-      io.sockets.in(roomname).emit("game-end", {
+      return io.sockets.in(roomname).emit("game-end", {
         scores: game.scores,
         players: game.players,
       });
-      return;
     }
 
     const question = game.questions[game.round];
@@ -173,6 +109,7 @@ io.on("connection", (client) => {
   }
 
   function handleAnswers({ roomname, playerid, question, answer }) {
+    console.log("Received answer from", playerid, "in room", roomname);
     const game = state[roomname];
     if (!game) return;
 
@@ -192,6 +129,7 @@ io.on("connection", (client) => {
       const maxVotes = Math.max(...Object.values(freq));
       const winners = Object.keys(freq).filter((id) => freq[id] === maxVotes);
 
+      // Update scores
       winners.forEach((id) => {
         game.scores[id] = (game.scores[id] || 0) + 1;
         const player = game.players.find((p) => p.id === id);
@@ -206,15 +144,29 @@ io.on("connection", (client) => {
         result: game,
       });
 
+      // Move to next round after 3s
       game.round += 1;
       setTimeout(() => emitQuestion(roomname), 1000);
     }
   }
+
+  client.on("disconnect", () => {
+    console.log("Client disconnected:", client.id);
+    const roomname = clientRooms[client.id];
+    if (!roomname) return;
+
+    users = users.filter((u) => u.id !== client.id);
+    const game = state[roomname];
+    if (!game) return;
+
+    game.users = users.filter((u) => u.roomname === roomname);
+    game.players = game.players.filter((p) => p.id !== client.id);
+    delete game.scores[client.id];
+
+    io.sockets.in(roomname).emit("new-player", game.users);
+    delete clientRooms[client.id];
+  });
 });
 
-// **Railway port**
 const PORT = process.env.PORT || 8080;
-
-server.listen(Number(PORT), "0.0.0.0", () => {
-  console.log("Server is running on port", PORT);
-});
+server.listen(PORT, () => console.log("Server running on port", PORT));
