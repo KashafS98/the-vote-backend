@@ -7,6 +7,10 @@ const { initGame } = require("./game");
 const app = express();
 const server = http.createServer(app);
 
+app.get("/health", (req, res) => {
+  res.send("The Vote Backend is running.", 200);
+});
+
 const io = socket(server, {
   cors: {
     origin: "https://the-vote.vercel.app/" || "http://localhost:3000",
